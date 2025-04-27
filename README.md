@@ -61,3 +61,7 @@ The script will:
 - The order is tagged with "API" and "Automated Order"
 - Only products with available inventory will be considered
 - The script handles error cases and provides informative error messages 
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 
