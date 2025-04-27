@@ -107,6 +107,8 @@ interface OrderCreateFromDraftResponse {
         order: {
           id: string;
           name: string;
+          displayFinancialStatus: string;
+          displayFulfillmentStatus: string;
         } | null;
       };
       userErrors: {
@@ -116,6 +118,27 @@ interface OrderCreateFromDraftResponse {
     };
   };
 }
+
+interface OrderFulfillmentCreateResponse {
+  data: {
+    fulfillmentCreate: {
+      fulfillment: {
+        id: string;
+        displayStatus: string;
+      } | null;
+      userErrors: {
+        field: string[];
+        message: string;
+      }[];
+    };
+  };
+}
+
+// Payment status types for Shopify orders
+type OrderPaymentStatus = 'PAID' | 'PENDING' | 'PARTIALLY_PAID' | 'UNPAID';
+
+// Fulfillment status types for Shopify orders
+type OrderFulfillmentStatus = 'FULFILLED' | 'PARTIALLY_FULFILLED' | 'UNFULFILLED' | 'PENDING_FULFILLMENT' | 'RESTOCKED';
 
 // Shopify credentials from environment variables with validation
 const SHOP_URL = process.env.SHOP_URL;
@@ -127,6 +150,52 @@ if (!SHOP_URL || !ACCESS_TOKEN) {
   console.error('Error: Missing required environment variables.');
   console.error('Please make sure SHOP_URL and ACCESS_TOKEN are set in your .env file.');
   process.exit(1);
+}
+
+/**
+ * Generates a random payment status for an order
+ */
+function getRandomPaymentStatus(): {status: OrderPaymentStatus, paymentPending: boolean} {
+  const statuses: OrderPaymentStatus[] = ['PAID', 'PENDING', 'PARTIALLY_PAID', 'UNPAID'];
+  const randomIndex = Math.floor(Math.random() * statuses.length);
+  const status = statuses[randomIndex];
+  
+  // For the draftOrderComplete mutation, we need to use paymentPending parameter
+  // True means PENDING, false means PAID
+  // But for PARTIALLY_PAID and UNPAID, we need to handle differently
+  let paymentPending: boolean = false;
+  
+  switch(status) {
+    case 'PAID':
+      paymentPending = false;
+      break;
+    case 'PENDING':
+      paymentPending = true;
+      break;
+    case 'PARTIALLY_PAID':
+    case 'UNPAID':
+      // For these statuses, we'll set to pending and then might need 
+      // to handle with additional mutations if needed
+      paymentPending = true;
+      break;
+  }
+  
+  return { status, paymentPending };
+}
+
+/**
+ * Generates a random fulfillment status for an order
+ */
+function getRandomFulfillmentStatus(): OrderFulfillmentStatus {
+  const statuses: OrderFulfillmentStatus[] = [
+    'FULFILLED', 
+    'PARTIALLY_FULFILLED', 
+    'UNFULFILLED', 
+    'PENDING_FULFILLMENT', 
+    'RESTOCKED'
+  ];
+  const randomIndex = Math.floor(Math.random() * statuses.length);
+  return statuses[randomIndex];
 }
 
 /**
@@ -316,8 +385,21 @@ async function createDraftOrder(customer: Customer, variant: ProductVariant): Pr
 /**
  * Completes a draft order to create a real order
  */
-async function completeDraftOrder(draftOrderId: string): Promise<string> {
+async function completeDraftOrder(draftOrderId: string): Promise<{
+  orderId: string, 
+  paymentStatus: OrderPaymentStatus,
+  fulfillmentStatus: OrderFulfillmentStatus,
+  actualFulfillmentStatus: string
+}> {
   console.log(`Completing draft order: ${draftOrderId}...`);
+  
+  // Get random payment status
+  const { status: paymentStatus, paymentPending } = getRandomPaymentStatus();
+  console.log(`Setting payment status: ${paymentStatus} (paymentPending: ${paymentPending})`);
+  
+  // Get random fulfillment status
+  const fulfillmentStatus = getRandomFulfillmentStatus();
+  console.log(`Selected fulfillment status: ${fulfillmentStatus}`);
   
   const mutation = `
     mutation draftOrderComplete($id: ID!, $paymentPending: Boolean!) {
@@ -327,6 +409,8 @@ async function completeDraftOrder(draftOrderId: string): Promise<string> {
           order {
             id
             name
+            displayFinancialStatus
+            displayFulfillmentStatus
           }
         }
         userErrors {
@@ -339,7 +423,7 @@ async function completeDraftOrder(draftOrderId: string): Promise<string> {
   
   const variables = {
     id: draftOrderId,
-    paymentPending: false // Mark as paid
+    paymentPending: paymentPending
   };
   
   const response = await makeShopifyGraphQLRequest(mutation, variables) as OrderCreateFromDraftResponse;
@@ -355,9 +439,19 @@ async function completeDraftOrder(draftOrderId: string): Promise<string> {
   
   const orderId = response.data.draftOrderComplete.draftOrder.order.id;
   const orderName = response.data.draftOrderComplete.draftOrder.order.name;
+  const actualFinancialStatus = response.data.draftOrderComplete.draftOrder.order.displayFinancialStatus || paymentStatus;
+  const actualFulfillmentStatus = response.data.draftOrderComplete.draftOrder.order.displayFulfillmentStatus || "UNFULFILLED";
   
   console.log(`Created order: ${orderName} (${orderId})`);
-  return orderId;
+  console.log(`Payment status: ${actualFinancialStatus}`);
+  console.log(`Fulfillment status: ${actualFulfillmentStatus}`);
+  
+  return { 
+    orderId, 
+    paymentStatus, 
+    fulfillmentStatus,
+    actualFulfillmentStatus
+  };
 }
 
 /**
@@ -377,7 +471,7 @@ async function createRandomOrder(): Promise<void> {
     const draftOrderId = await createDraftOrder(customer, variant);
     
     // 4. Complete the draft order to create a real order
-    const orderId = await completeDraftOrder(draftOrderId);
+    const { orderId, paymentStatus, fulfillmentStatus, actualFulfillmentStatus } = await completeDraftOrder(draftOrderId);
     
     console.log('\n=============================================');
     console.log('ORDER CREATION SUCCESSFUL');
@@ -387,7 +481,11 @@ async function createRandomOrder(): Promise<void> {
     console.log(`Product: ${product.title} - ${variant.title}`);
     console.log(`Price: ${variant.price}`);
     console.log(`Order ID: ${orderId}`);
+    console.log(`Payment Status: ${paymentStatus}`);
+    console.log(`Desired Fulfillment Status: ${fulfillmentStatus}`);
+    console.log(`Actual Fulfillment Status: ${actualFulfillmentStatus}`);
     console.log('=============================================');
+    console.log('Note: In Shopify, fulfillment status can only be modified through the fulfillment process and not directly set.');
     
   } catch (error) {
     console.error('Error creating order:');
