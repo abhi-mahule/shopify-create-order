@@ -546,7 +546,7 @@ async function fetchRandomProduct(): Promise<{ product: Product, variant: Produc
 /**
  * Creates a draft order in Shopify
  */
-async function createDraftOrder(customer: Customer, variant: ProductVariant): Promise<string> {
+async function createDraftOrder(customer: Customer, variant: ProductVariant, tags?: string[]): Promise<string> {
   console.log('Creating draft order...');
   
   // Generate shipping and billing addresses
@@ -559,6 +559,10 @@ async function createDraftOrder(customer: Customer, variant: ProductVariant): Pr
   console.log(`${shippingAddress.city}, ${shippingAddress.province} ${shippingAddress.zip}`);
   console.log(`${shippingAddress.country}`);
   console.log(`Phone: ${shippingAddress.phone}`);
+  
+  if (tags && tags.length > 0) {
+    console.log(`Order tags: ${tags.join(', ')}`);
+  }
   
   const mutation = `
     mutation draftOrderCreate($input: DraftOrderInput!) {
@@ -587,7 +591,8 @@ async function createDraftOrder(customer: Customer, variant: ProductVariant): Pr
         quantity: 1
       }],
       shippingAddress: shippingAddress,
-      billingAddress: billingAddress
+      billingAddress: billingAddress,
+      tags: tags || []
     }
   };
   
@@ -719,9 +724,35 @@ async function completeDraftOrder(draftOrderId: string): Promise<{
 }
 
 /**
+ * Generates random tags for orders
+ */
+function generateRandomTags(): string[] {
+  const possibleTags = [
+    'new-customer', 'returning-customer', 'high-value', 'subscription', 
+    'priority', 'gift', 'seasonal', 'promotion', 'wholesale', 'retail',
+    'international', 'domestic', 'expedited', 'custom-order', 'pre-order'
+  ];
+  
+  // Determine how many tags to use (0-3)
+  const tagCount = Math.floor(Math.random() * 4);
+  const selectedTags: string[] = [];
+  
+  // Randomly select tags without duplicates
+  for (let i = 0; i < tagCount; i++) {
+    const availableTags = possibleTags.filter(tag => !selectedTags.includes(tag));
+    if (availableTags.length === 0) break;
+    
+    const randomIndex = Math.floor(Math.random() * availableTags.length);
+    selectedTags.push(availableTags[randomIndex]);
+  }
+  
+  return selectedTags;
+}
+
+/**
  * Main function to create an order with random product and customer
  */
-async function createRandomOrder(): Promise<void> {
+async function createRandomOrder(customTags?: string[]): Promise<void> {
   try {
     console.log(`Creating a random order in Shopify store: ${SHOP_URL}`);
     
@@ -731,10 +762,13 @@ async function createRandomOrder(): Promise<void> {
     // 2. Fetch random product with inventory
     const { product, variant } = await fetchRandomProduct();
     
-    // 3. Create a draft order
-    const draftOrderId = await createDraftOrder(customer, variant);
+    // 3. Use provided tags or generate random ones
+    const tags = customTags || generateRandomTags();
     
-    // 4. Complete the draft order to create a real order
+    // 4. Create a draft order
+    const draftOrderId = await createDraftOrder(customer, variant, tags);
+    
+    // 5. Complete the draft order to create a real order
     const { orderId, paymentStatus, fulfillmentStatus, actualFulfillmentStatus, deliveryInfo } = await completeDraftOrder(draftOrderId);
     
     console.log('\n=============================================');
@@ -747,6 +781,10 @@ async function createRandomOrder(): Promise<void> {
     console.log(`Order ID: ${orderId}`);
     console.log(`Payment Status: ${paymentStatus}`);
     console.log(`Fulfillment Status: ${fulfillmentStatus} (${actualFulfillmentStatus})`);
+    if (tags && tags.length > 0) {
+      console.log(`Tags: ${tags.join(', ')}`);
+    }
+    
     console.log(`\nDELIVERY INFORMATION:`);
     console.log(`Status: ${deliveryInfo.status}`);
     
@@ -769,5 +807,7 @@ async function createRandomOrder(): Promise<void> {
   }
 }
 
-// Execute the function
-createRandomOrder(); 
+// Check if tags are provided via command line
+const customTags = process.argv.slice(2);
+// Execute the function with optional custom tags
+createRandomOrder(customTags.length > 0 ? customTags : undefined); 
