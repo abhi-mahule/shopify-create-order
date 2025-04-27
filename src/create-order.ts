@@ -420,39 +420,92 @@ async function makeShopifyGraphQLRequest(query: string, variables?: any): Promis
 async function fetchRandomCustomer(): Promise<Customer> {
   console.log('Fetching random customer...');
   
-  const query = `
-    query {
-      customers(first: 25) {
-        edges {
-          node {
-            id
-            firstName
-            lastName
-            email
-            defaultAddress {
-              address1
-              address2
-              city
-              province
-              provinceCode
-              zip
-              country
-              countryCode
-              phone
+  // Generate a random sort key to vary results
+  const sortKeys = ['CREATED_AT', 'UPDATED_AT', 'LAST_ORDER_DATE', 'NAME', 'ID'];
+  const randomSortKey = sortKeys[Math.floor(Math.random() * sortKeys.length)];
+  
+  // Generate a random boolean for reverse
+  const reverse = Math.random() > 0.5;
+  
+  // Calculate a random offset to get different batches of customers
+  // This will simulate pagination to avoid always getting the first set
+  const offset = Math.floor(Math.random() * 100); // Adjust this based on your store size
+  const cursor = offset > 0 ? `"${Buffer.from(`gid://shopify/Customer/${offset}`).toString('base64')}"` : null;
+  
+  let query: string;
+  
+  if (cursor) {
+    // Use after parameter if we have a cursor
+    query = `
+      query {
+        customers(first: 50, sortKey: ${randomSortKey}, reverse: ${reverse}, after: ${cursor}) {
+          edges {
+            node {
+              id
+              firstName
+              lastName
+              email
+              defaultAddress {
+                address1
+                address2
+                city
+                province
+                provinceCode
+                zip
+                country
+                countryCode
+                phone
+              }
             }
           }
-        }
-        pageInfo {
-          hasNextPage
-          endCursor
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
         }
       }
-    }
-  `;
+    `;
+  } else {
+    // If cursor generation failed, just use regular query
+    query = `
+      query {
+        customers(first: 50, sortKey: ${randomSortKey}, reverse: ${reverse}) {
+          edges {
+            node {
+              id
+              firstName
+              lastName
+              email
+              defaultAddress {
+                address1
+                address2
+                city
+                province
+                provinceCode
+                zip
+                country
+                countryCode
+                phone
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    `;
+  }
   
   const response = await makeShopifyGraphQLRequest(query) as CustomerQueryResponse;
   
   if (!response.data?.customers?.edges || response.data.customers.edges.length === 0) {
+    // If the query with offset returns no results, try without offset
+    if (cursor) {
+      console.log('No customers found with offset, trying without offset...');
+      return fetchRandomCustomer();
+    }
     throw new Error('No customers found in the store');
   }
   
