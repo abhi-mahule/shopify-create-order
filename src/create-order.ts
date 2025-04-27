@@ -125,6 +125,7 @@ interface OrderFulfillmentCreateResponse {
       fulfillment: {
         id: string;
         displayStatus: string;
+        trackingInfo: TrackingInfo[];
       } | null;
       userErrors: {
         field: string[];
@@ -134,11 +135,23 @@ interface OrderFulfillmentCreateResponse {
   };
 }
 
+interface TrackingInfo {
+  number: string;
+  url: string;
+  company: string;
+}
+
 // Payment status types for Shopify orders
 type OrderPaymentStatus = 'PAID' | 'PENDING' | 'PARTIALLY_PAID' | 'UNPAID';
 
 // Fulfillment status types for Shopify orders
 type OrderFulfillmentStatus = 'FULFILLED' | 'PARTIALLY_FULFILLED' | 'UNFULFILLED' | 'PENDING_FULFILLMENT' | 'RESTOCKED';
+
+// Delivery status types
+type DeliveryStatus = 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'ATTEMPTED_DELIVERY' | 'DELIVERED' | 'DELAYED' | 'NOT_SHIPPED';
+
+// Shipping carriers
+type ShippingCarrier = 'UPS' | 'USPS' | 'FEDEX' | 'DHL' | 'ONTRAC';
 
 // Shopify credentials from environment variables with validation
 const SHOP_URL = process.env.SHOP_URL;
@@ -196,6 +209,95 @@ function getRandomFulfillmentStatus(): OrderFulfillmentStatus {
   ];
   const randomIndex = Math.floor(Math.random() * statuses.length);
   return statuses[randomIndex];
+}
+
+/**
+ * Generates a random delivery status based on fulfillment status
+ */
+function getRandomDeliveryInfo(fulfillmentStatus: OrderFulfillmentStatus): {
+  status: DeliveryStatus, 
+  carrier: ShippingCarrier, 
+  trackingNumber: string
+} {
+  // Delivery status depends on fulfillment status
+  let availableStatuses: DeliveryStatus[] = [];
+  
+  switch(fulfillmentStatus) {
+    case 'FULFILLED':
+      availableStatuses = ['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'];
+      break;
+    case 'PARTIALLY_FULFILLED':
+      availableStatuses = ['IN_TRANSIT', 'DELAYED'];
+      break;
+    case 'UNFULFILLED':
+    case 'RESTOCKED':
+      availableStatuses = ['NOT_SHIPPED'];
+      break;
+    case 'PENDING_FULFILLMENT':
+      availableStatuses = ['NOT_SHIPPED', 'DELAYED'];
+      break;
+  }
+  
+  // If no appropriate statuses are available, default to NOT_SHIPPED
+  if (availableStatuses.length === 0) {
+    availableStatuses = ['NOT_SHIPPED'];
+  }
+  
+  // Select a random status from the available options
+  const randomStatusIndex = Math.floor(Math.random() * availableStatuses.length);
+  const status = availableStatuses[randomStatusIndex];
+  
+  // Only generate carrier and tracking info if there's actually a shipment
+  let carrier: ShippingCarrier = 'USPS';
+  let trackingNumber = '';
+  
+  if (status !== 'NOT_SHIPPED') {
+    // Select a random carrier
+    const carriers: ShippingCarrier[] = ['UPS', 'USPS', 'FEDEX', 'DHL', 'ONTRAC'];
+    const randomCarrierIndex = Math.floor(Math.random() * carriers.length);
+    carrier = carriers[randomCarrierIndex];
+    
+    // Generate a random tracking number
+    trackingNumber = generateRandomTrackingNumber(carrier);
+  }
+  
+  return {
+    status,
+    carrier,
+    trackingNumber
+  };
+}
+
+/**
+ * Generates a random tracking number based on carrier format
+ */
+function generateRandomTrackingNumber(carrier: ShippingCarrier): string {
+  // Generate different tracking number formats based on carrier
+  switch(carrier) {
+    case 'UPS':
+      // UPS format: 1Z + 8 digits
+      return `1Z${Math.floor(10000000 + Math.random() * 90000000)}`;
+      
+    case 'USPS':
+      // USPS format: 20 digits
+      return `9400${Math.floor(1000000000000000 + Math.random() * 9000000000000000)}`;
+      
+    case 'FEDEX':
+      // FedEx format: 12 digits
+      return `${Math.floor(100000000000 + Math.random() * 900000000000)}`;
+      
+    case 'DHL':
+      // DHL format: 10 digits
+      return `${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+      
+    case 'ONTRAC':
+      // OnTrac format: C + 14 digits
+      return `C${Math.floor(10000000000000 + Math.random() * 90000000000000)}`;
+      
+    default:
+      // Generic format
+      return `TRK${Math.floor(1000000 + Math.random() * 9000000)}`;
+  }
 }
 
 /**
@@ -383,13 +485,43 @@ async function createDraftOrder(customer: Customer, variant: ProductVariant): Pr
 }
 
 /**
+ * Creates a fulfillment with tracking information
+ */
+async function createFulfillmentWithTracking(
+  orderId: string, 
+  fulfillmentStatus: OrderFulfillmentStatus,
+  deliveryInfo: { status: DeliveryStatus, carrier: ShippingCarrier, trackingNumber: string }
+): Promise<void> {
+  // Only create fulfillment if appropriate based on the status
+  if (
+    fulfillmentStatus === 'UNFULFILLED' || 
+    fulfillmentStatus === 'RESTOCKED' || 
+    deliveryInfo.status === 'NOT_SHIPPED'
+  ) {
+    console.log('Order not fulfilled or shipped - skipping tracking information');
+    return;
+  }
+  
+  console.log(`Adding tracking information: ${deliveryInfo.carrier} - ${deliveryInfo.trackingNumber} (${deliveryInfo.status})`);
+  
+  // In a real implementation, we would add the tracking information here
+  // using the fulfillmentCreate mutation
+  // For simplicity, we're just logging the tracking info
+}
+
+/**
  * Completes a draft order to create a real order
  */
 async function completeDraftOrder(draftOrderId: string): Promise<{
   orderId: string, 
   paymentStatus: OrderPaymentStatus,
   fulfillmentStatus: OrderFulfillmentStatus,
-  actualFulfillmentStatus: string
+  actualFulfillmentStatus: string,
+  deliveryInfo: {
+    status: DeliveryStatus,
+    carrier: ShippingCarrier,
+    trackingNumber: string
+  }
 }> {
   console.log(`Completing draft order: ${draftOrderId}...`);
   
@@ -400,6 +532,10 @@ async function completeDraftOrder(draftOrderId: string): Promise<{
   // Get random fulfillment status
   const fulfillmentStatus = getRandomFulfillmentStatus();
   console.log(`Selected fulfillment status: ${fulfillmentStatus}`);
+  
+  // Get random delivery status based on fulfillment status
+  const deliveryInfo = getRandomDeliveryInfo(fulfillmentStatus);
+  console.log(`Selected delivery status: ${deliveryInfo.status}`);
   
   const mutation = `
     mutation draftOrderComplete($id: ID!, $paymentPending: Boolean!) {
@@ -446,11 +582,15 @@ async function completeDraftOrder(draftOrderId: string): Promise<{
   console.log(`Payment status: ${actualFinancialStatus}`);
   console.log(`Fulfillment status: ${actualFulfillmentStatus}`);
   
+  // Add tracking information if appropriate
+  await createFulfillmentWithTracking(orderId, fulfillmentStatus, deliveryInfo);
+  
   return { 
     orderId, 
     paymentStatus, 
     fulfillmentStatus,
-    actualFulfillmentStatus
+    actualFulfillmentStatus,
+    deliveryInfo
   };
 }
 
@@ -471,7 +611,7 @@ async function createRandomOrder(): Promise<void> {
     const draftOrderId = await createDraftOrder(customer, variant);
     
     // 4. Complete the draft order to create a real order
-    const { orderId, paymentStatus, fulfillmentStatus, actualFulfillmentStatus } = await completeDraftOrder(draftOrderId);
+    const { orderId, paymentStatus, fulfillmentStatus, actualFulfillmentStatus, deliveryInfo } = await completeDraftOrder(draftOrderId);
     
     console.log('\n=============================================');
     console.log('ORDER CREATION SUCCESSFUL');
@@ -482,10 +622,17 @@ async function createRandomOrder(): Promise<void> {
     console.log(`Price: ${variant.price}`);
     console.log(`Order ID: ${orderId}`);
     console.log(`Payment Status: ${paymentStatus}`);
-    console.log(`Desired Fulfillment Status: ${fulfillmentStatus}`);
-    console.log(`Actual Fulfillment Status: ${actualFulfillmentStatus}`);
+    console.log(`Fulfillment Status: ${fulfillmentStatus} (${actualFulfillmentStatus})`);
+    console.log(`\nDELIVERY INFORMATION:`);
+    console.log(`Status: ${deliveryInfo.status}`);
+    
+    if (deliveryInfo.status !== 'NOT_SHIPPED') {
+      console.log(`Carrier: ${deliveryInfo.carrier}`);
+      console.log(`Tracking Number: ${deliveryInfo.trackingNumber}`);
+    }
+    
     console.log('=============================================');
-    console.log('Note: In Shopify, fulfillment status can only be modified through the fulfillment process and not directly set.');
+    console.log('Note: Delivery status and tracking information is simulated in this implementation.');
     
   } catch (error) {
     console.error('Error creating order:');
