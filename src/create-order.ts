@@ -459,6 +459,9 @@ async function createDraftOrder(customer: Customer, variant: ProductVariant): Pr
     }
   `;
   
+  // Create draft order without sending email notification
+  // Shopify won't send any email until draftOrderInvoiceSend is called
+  // By not calling draftOrderInvoiceSend, we prevent all notification emails
   const variables = {
     input: {
       customerId: customer.id,
@@ -481,6 +484,7 @@ async function createDraftOrder(customer: Customer, variant: ProductVariant): Pr
   const totalPrice = response.data.draftOrderCreate.draftOrder.totalPrice;
   
   console.log(`Created draft order: ${draftOrderName} (${draftOrderId}) with total price: ${totalPrice}`);
+  console.log('Email notifications: Disabled (no invoice email will be sent)');
   return draftOrderId;
 }
 
@@ -581,6 +585,7 @@ async function completeDraftOrder(draftOrderId: string): Promise<{
   console.log(`Created order: ${orderName} (${orderId})`);
   console.log(`Payment status: ${actualFinancialStatus}`);
   console.log(`Fulfillment status: ${actualFulfillmentStatus}`);
+  console.log(`Email notifications: Disabled`);
   
   // Add tracking information if appropriate
   await createFulfillmentWithTracking(orderId, fulfillmentStatus, deliveryInfo);
