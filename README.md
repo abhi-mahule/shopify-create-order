@@ -58,7 +58,6 @@ The script will:
 ## Notes
 
 - The script creates a paid order
-- The order is tagged with "API" and "Automated Order"
 - Only products with available inventory will be considered
 - The script handles error cases and provides informative error messages 
 

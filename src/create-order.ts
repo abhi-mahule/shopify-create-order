@@ -294,8 +294,7 @@ async function createDraftOrder(customer: Customer, variant: ProductVariant): Pr
       lineItems: [{
         variantId: variant.id,
         quantity: 1
-      }],
-      tags: ["API", "Automated Order"]
+      }]
     }
   };
   
