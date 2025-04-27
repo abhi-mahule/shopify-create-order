@@ -20,6 +20,7 @@ interface Customer {
   firstName: string;
   lastName: string;
   email: string;
+  defaultAddress?: Address | null;
 }
 
 interface CustomerEdge {
@@ -139,6 +140,21 @@ interface TrackingInfo {
   number: string;
   url: string;
   company: string;
+}
+
+interface Address {
+  address1?: string;
+  address2?: string | null;
+  city?: string;
+  province?: string | null;
+  provinceCode?: string | null;
+  zip?: string;
+  country?: string;
+  countryCode?: string;
+  phone?: string | null;
+  firstName?: string;
+  lastName?: string;
+  company?: string | null;
 }
 
 // Payment status types for Shopify orders
@@ -301,6 +317,76 @@ function generateRandomTrackingNumber(carrier: ShippingCarrier): string {
 }
 
 /**
+ * Generates a random address
+ */
+function generateRandomAddress(customer: Customer): Address {
+  // If the customer has a default address, use some of those details
+  if (customer.defaultAddress) {
+    return {
+      ...customer.defaultAddress,
+      firstName: customer.firstName,
+      lastName: customer.lastName
+    };
+  }
+
+  // City options
+  const cities = [
+    'New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix', 
+    'Philadelphia', 'San Antonio', 'San Diego', 'Dallas', 'San Jose'
+  ];
+  
+  // Street names
+  const streetNames = [
+    'Main St', 'Oak Ave', 'Maple Dr', 'Washington Blvd', 'Park Rd',
+    'Cedar Ln', 'Lake View Dr', 'River Rd', 'Pine St', 'Elm St'
+  ];
+  
+  // States
+  const states = [
+    { name: 'California', code: 'CA' },
+    { name: 'New York', code: 'NY' },
+    { name: 'Texas', code: 'TX' },
+    { name: 'Florida', code: 'FL' },
+    { name: 'Illinois', code: 'IL' },
+    { name: 'Pennsylvania', code: 'PA' },
+    { name: 'Ohio', code: 'OH' },
+    { name: 'Georgia', code: 'GA' },
+    { name: 'North Carolina', code: 'NC' },
+    { name: 'Michigan', code: 'MI' }
+  ];
+  
+  // Generate random numbers for address
+  const streetNumber = Math.floor(100 + Math.random() * 9900);
+  const zipCode = Math.floor(10000 + Math.random() * 90000).toString();
+  
+  // Select random city, street, and state
+  const cityIndex = Math.floor(Math.random() * cities.length);
+  const streetIndex = Math.floor(Math.random() * streetNames.length);
+  const stateIndex = Math.floor(Math.random() * states.length);
+  
+  // Generate a random 10-digit phone number
+  const areaCode = Math.floor(200 + Math.random() * 800).toString();
+  const firstPart = Math.floor(200 + Math.random() * 800).toString();
+  const secondPart = Math.floor(1000 + Math.random() * 9000).toString();
+  const phone = `${areaCode}-${firstPart}-${secondPart}`;
+  
+  return {
+    firstName: customer.firstName,
+    lastName: customer.lastName,
+    address1: `${streetNumber} ${streetNames[streetIndex]}`,
+    address2: null,
+    city: cities[cityIndex],
+    province: states[stateIndex].name,
+    provinceCode: states[stateIndex].code,
+    zip: zipCode,
+    country: 'United States',
+    countryCode: 'US',
+    phone,
+    company: null
+  };
+}
+
+/**
  * Makes a GraphQL request to Shopify
  */
 async function makeShopifyGraphQLRequest(query: string, variables?: any): Promise<any> {
@@ -343,6 +429,17 @@ async function fetchRandomCustomer(): Promise<Customer> {
             firstName
             lastName
             email
+            defaultAddress {
+              address1
+              address2
+              city
+              province
+              provinceCode
+              zip
+              country
+              countryCode
+              phone
+            }
           }
         }
         pageInfo {
@@ -443,6 +540,17 @@ async function fetchRandomProduct(): Promise<{ product: Product, variant: Produc
 async function createDraftOrder(customer: Customer, variant: ProductVariant): Promise<string> {
   console.log('Creating draft order...');
   
+  // Generate shipping and billing addresses
+  const shippingAddress = generateRandomAddress(customer);
+  const billingAddress = { ...shippingAddress }; // Use same address for billing
+
+  console.log('Shipping Address:');
+  console.log(`${shippingAddress.firstName} ${shippingAddress.lastName}`);
+  console.log(`${shippingAddress.address1}`);
+  console.log(`${shippingAddress.city}, ${shippingAddress.province} ${shippingAddress.zip}`);
+  console.log(`${shippingAddress.country}`);
+  console.log(`Phone: ${shippingAddress.phone}`);
+  
   const mutation = `
     mutation draftOrderCreate($input: DraftOrderInput!) {
       draftOrderCreate(input: $input) {
@@ -468,7 +576,9 @@ async function createDraftOrder(customer: Customer, variant: ProductVariant): Pr
       lineItems: [{
         variantId: variant.id,
         quantity: 1
-      }]
+      }],
+      shippingAddress: shippingAddress,
+      billingAddress: billingAddress
     }
   };
   
